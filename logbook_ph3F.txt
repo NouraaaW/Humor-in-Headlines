@@ -1,0 +1,244 @@
+# Logbook Report - Phase 3: Modelling and Communication
+
+Course: IT362: Principles of Data Science
+Project Topic: Humor in Headlines: Sociolinguistic Variation
+Team Members: Basmah Alrashid (442202996), Noura Alamro (444200941), Shooq Alawadah (444201083), Reema Alraqibah (444201069)
+
+Phase: 3 - Modelling and Communication
+
+================================================================================
+PHASE 3 LOGBOOK: MODELING AND SOCIOLINGUISTIC ANALYSIS
+================================================================================
+
+Objective: To develop and evaluate machine learning models for humor classification and 
+to perform a deep sociolinguistic analysis of humor across different online communities.
+
+--------------------------------------------------------------------------------
+ENTRY 1: PROJECT INITIALIZATION AND DATA PREPARATION
+--------------------------------------------------------------------------------
+
+
+Actions Taken:
+1. Imported all necessary libraries for machine learning (scikit-learn), deep learning 
+   (TensorFlow/Keras), and data manipulation (pandas, numpy).
+2. Defined file paths for the primary Reddit dataset (humor_cleaned_dataset.csv) and 
+   the secondary Short Jokes dataset (shortjokes.csv).
+3. Implemented a custom ItemSelector transformer class to enable the FeatureUnion in 
+   the pipeline to select specific columns from a DataFrame.
+
+Rationale:
+- Using a pipeline ensures a reproducible and clean workflow for model training and evaluation.
+- The ItemSelector is a standard technique for building scikit-learn pipelines that use 
+  multiple features from a DataFrame.
+
+--------------------------------------------------------------------------------
+ENTRY 2: DATA LOADING AND LABEL ENGINEERING
+--------------------------------------------------------------------------------
+
+Actions Taken:
+1. Loaded Short Jokes: The load_short_jokes_for_linguistic_patterns function was called. 
+   It successfully loaded 231,657 short jokes. The decision was made to use these ONLY 
+   for linguistic enrichment of the RNN's vocabulary, not for direct training, to avoid 
+   domain mismatch.
+2. Loaded Primary Data: The prepare_main_training_data function loaded the cleaned Reddit 
+   dataset with 20,804 posts.
+3. Engineered Labels: Since the dataset lacked a direct "funny/not funny" label, we created 
+   one based on engagement. The logic was: engagement_score = score + (num_comments * 10). 
+   A post was labeled as humorous (Label = 1) if its engagement score was in the top 70th 
+   percentile (threshold based on the 0.3 quantile).
+   - Resulting Distribution: 14,579 humor posts (70%) vs. 6,225 non-humor posts (30%).
+
+Rationale:
+- Labeling Strategy: The assumption is that higher engagement (upvotes and comments) is a 
+  strong proxy for a post being perceived as humorous by the community. This is a common 
+  and practical approach for user-generated content where explicit labels are unavailable.
+- Class Imbalance: The resulting 70/30 split creates a class imbalance. We acknowledged 
+  this would be a challenge and decided to address it in the models using class_weight='balanced' 
+  in Logistic Regression and by computing class weights for the RNN.
+
+Challenges & Solutions:
+- Challenge: No ground-truth humor label.
+- Solution: Used a heuristic based on platform-native engagement metrics, which, while 
+  imperfect, provides a reasonable and scalable target variable for classification.
+
+--------------------------------------------------------------------------------
+ENTRY 3: SOCIOLINGUISTIC ANALYSIS (EDA - PART 2)
+--------------------------------------------------------------------------------
+
+Actions Taken:
+Executed the analyze_sociolinguistic_patterns function, which performed a group-wise 
+analysis of the data.
+
+Key Findings and Decisions:
+1. Subreddit Humor Density: Found massive variation in the prevalence of high-engagement 
+   (labeled "humor") posts. Subreddits like r/unexpected, r/TIHI, and r/ContagiousLaughter 
+   were almost exclusively high-engagement (~99%), while r/pun and r/lamejokes were very 
+   low (7% and 1% respectively).
+   - Insight: Humor is highly community-specific. A model must understand context.
+
+2. Emoji Impact: Posts with emojis had a nearly identical rate of being labeled humorous 
+   (70.9% vs 70.1% without). Surprisingly, posts WITH emojis had LOWER average scores 
+   and comments.
+   - Decision: We hypothesized that emoji presence would not be a strong predictive feature. 
+     We kept it for model training but did not expect a major impact.
+
+3. Text Length Analysis: Discovered a huge range in average post length, from r/onewordjokes 
+   (7.3 chars) to r/showerthoughts (114.5 chars). The primary Reddit humor data was 
+   significantly shorter and more variable than the traditional Short Jokes dataset 
+   (46.1 vs. 93.0 avg chars).
+   - Insight: "Humor" is not a monolith; its structure varies dramatically. This informed 
+     our decision to use character-level n-grams in the Logistic Regression model to capture 
+     sub-word patterns, especially for very short posts.
+
+--------------------------------------------------------------------------------
+ENTRY 4: MODEL TRAINING - LOGISTIC REGRESSION
+--------------------------------------------------------------------------------
+
+Actions Taken:
+1. Split the data into 70% training and 30% test sets, using stratification to preserve 
+   the class imbalance in both splits.
+2. Defined a Pipeline for Logistic Regression using a FeatureUnion to combine:
+   - Word N-grams: CountVectorizer (1-grams and 2-grams).
+   - Char N-grams: CountVectorizer (2 to 4 characters) to capture sub-word patterns like 
+     puns and slang.
+   - TF-IDF: TfidfVectorizer (1-grams and 2-grams) to weight important words.
+3. Trained the model with class_weight='balanced' to mitigate the class imbalance.
+
+Results:
+- Accuracy: 0.6353
+- F1-Score: 0.6439
+- The model was significantly better at identifying humor (Recall=0.70, F1=0.73) than 
+  non-humor (Recall=0.49, F1=0.45).
+
+Rationale:
+- Chose Logistic Regression as a strong, interpretable baseline. The combination of 
+  multiple vectorizers was designed to capture a wide range of linguistic features, 
+  from vocabulary to writing style.
+
+--------------------------------------------------------------------------------
+ENTRY 5: MODEL TRAINING - RNN
+--------------------------------------------------------------------------------
+
+Actions Taken:
+1. Vocabulary Enhancement: Combined the text from the training set with the 231,657 
+   short jokes to create the tokenizer's vocabulary. This was done to expose the model 
+   to a wider variety of joke structures and phrasing.
+2. Sequence Preparation: Padded all sequences to a maximum length of 50 tokens.
+3. Class Weighting: Computed class weights ({0: 1.67, 1: 0.71}) to penalize misclassifications 
+   of the minority class (non-humor) more heavily.
+4. Model Architecture: Built a Sequential model with:
+   - An Embedding layer.
+   - A Bidirectional LSTM layer (64 units) with dropout for regularization.
+   - A Dense layer (32 units) with further dropout.
+   - A final Dense layer with sigmoid activation for binary classification.
+5. Training: Used the Adam optimizer and employed EarlyStopping with a patience of 2 
+   epochs to prevent overfitting.
+
+Results:
+- Accuracy: 0.6277
+- F1-Score: 0.6396
+- The RNN showed a different performance profile: it had HIGHER recall for non-humor 
+  (0.53 vs. Logistic Regression's 0.49) but LOWER recall for humor (0.67 vs. 0.70).
+
+Challenges & Solutions:
+- Challenge: Overfitting. The training accuracy quickly rose above 80%, while validation 
+  performance plateaued and began to degrade after epoch 3.
+- Solution: The EarlyStopping callback successfully halted training and restored the 
+  best weights from epoch 3, preventing the model from learning the noise in the training data.
+- Challenge: Class Imbalance.
+- Solution: The use of class weights helped the RNN become more sensitive to the non-humor 
+  class, as evidenced by its higher recall for class 0.
+
+--------------------------------------------------------------------------------
+ENTRY 6: MODEL EVALUATION AND SELECTION
+--------------------------------------------------------------------------------
+
+Actions Taken:
+1. Compared the results of both models directly.
+2. Analyzed confusion matrices and sample predictions to understand model behavior.
+
+Results and Final Decision:
+- Logistic Regression performed slightly better on overall Accuracy and F1-Score.
+- Decision: Selected Logistic Regression as the final model.
+
+Rationale:
+- The performance difference, while small, was consistent.
+- Logistic Regression is faster to train and much more interpretable. We can, for instance, 
+  inspect the coefficients to see which words are most associated with humor.
+- The RNN, while more powerful, was prone to overfitting and its performance gains did 
+  not justify the added complexity for this specific task and dataset.
+
+--------------------------------------------------------------------------------
+ENTRY 7: VISUALIZATION AND QUALITATIVE ANALYSIS
+--------------------------------------------------------------------------------
+
+Actions Taken:
+1. Generated a series of plots (pie chart, boxplots, violin plots, histograms) to visually 
+   represent the data distributions and EDA findings.
+2. Created custom, color-coded confusion matrices for both models to easily compare 
+   their prediction behaviors.
+3. Extracted and printed sample predictions from both models to perform a qualitative 
+   error analysis.
+
+Key Qualitative Insights:
+- Both models correctly identified clear, culturally modern humor 
+- Logistic Regression Errors: Misclassified some joke-setup posts like "What do you 
+  feel after having one bite too many?" as non-humor. This suggests it may struggle 
+  with decontextualized punchlines.
+- RNN Errors: Made a significant error by classifying a straightforward, non-humorous 
+  statement about a football game as humor. It also correctly classified "Peter Berman 
+  Has Been Doing Comedy For 39 Years" as humor, which Logistic Regression missed, 
+  showing it can sometimes grasp context better.
+
+Challenges & Solutions:
+- Challenge: FutureWarnings from Seaborn about palette usage.
+- Solution: Acknowledged but not fixed immediately, as the plots generated correctly. 
+ 
+
+================================================================================
+SUMMARY OF KEY CHALLENGES AND RESOLUTIONS
+================================================================================
+
+1. LACK OF EXPLICIT LABELS:
+   - Challenge: The dataset did not have a "is_humorous" label.
+   - Resolution: Engineered a label using a composite engagement metric, providing a 
+     viable target for supervised learning.
+
+2. CLASS IMBALANCE:
+   - Challenge: The labeled data was skewed 70/30 towards the "humor" class.
+   - Resolution: Addressed this in both models using class_weight parameters, which 
+     improved the models' ability to identify the minority "non-humor" class.
+
+3. OVERFITTING IN THE RNN:
+   - Challenge: The RNN model began to overfit after just a few epochs, as seen in 
+     the divergence of training and validation loss.
+   - Resolution: Implemented EarlyStopping and increased dropout rates, which successfully 
+     controlled overfitting and ensured we used the best generalizing model.
+
+4. DOMAIN MISMATCH:
+   - Challenge: Traditional joke datasets (Short Jokes) have different linguistic 
+     characteristics than Reddit humor posts.
+   - Resolution: Used the Short Jokes dataset only for vocabulary enhancement in the 
+     RNN, not for direct training, to avoid confusing the model with different humor styles.
+
+================================================================================
+FINAL MODEL PERFORMANCE SUMMARY
+================================================================================
+
+Selected Model: Logistic Regression
+- Accuracy: 0.6353
+- F1-Score: 0.6439
+- Precision (Humor): 0.76
+- Recall (Humor): 0.70
+- Precision (Non-humor): 0.41
+- Recall (Non-humor): 0.49
+
+Key Sociolinguistic Findings:
+- Humor expression is highly community-dependent
+- Emoji usage has minimal correlation with engagement or humor classification
+- Reddit humor is typically shorter and more informal than traditional joke structures
+- Brevity and informal language are strong indicators of humorous content
+
+================================================================================
+END OF LOGBOOK - PHASE 3
+================================================================================
